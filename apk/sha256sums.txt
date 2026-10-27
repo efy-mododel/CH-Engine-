@@ -1,0 +1,5 @@
+ecae47798a943d08e281a2589cff317a0e1851aad2bdf4411edace771a0b8e8d  catroid-danvex-debug.apk.part00
+6cdbb39fd72b3237fbb98bf6a7a92e76a7cdaba1cbc01fafc4eea2af5cf36dde  catroid-danvex-debug.apk.part01
+2dd01077cb607b4c15dc9f8723a9d03bc3d17d724925c8799a561453222caf2d  catroid-danvex-debug.apk.part02
+e3fc3a3ea6ec8addf18b6567993d65eb667cb8abc976d649a5d5d42e4c57b681  catroid-danvex-debug.apk.part03
+5d417930e29600e0a24342f31c46e719b43134ea5c53870a16d858e70384554c  catroid-danvex-debug.apk.part04
