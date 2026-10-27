@@ -1,0 +1,98 @@
+name: Cloud APK Build
+
+on:
+  push:
+    branches: [arena/8c867d04-ch-engine]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cloud-apk-build
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build NewCatroid danvex debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Accept Android SDK licenses
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            "platforms;android-34" "build-tools;34.0.0" "platform-tools" >/dev/null
+
+      - name: Build danvex debug APK
+        run: |
+          set -o pipefail
+          chmod +x ./gradlew
+          ./gradlew :catroid:assembleDanvexDebug \
+            --no-daemon --stacktrace -x lint -x test 2>&1 | tee build.log
+          test -n "$(find catroid/build/outputs/apk/danvex/debug -name '*.apk' -print -quit)"
+
+      - name: Publish APK and logs to apk-artifacts branch
+        if: always()
+        run: |
+          set -euo pipefail
+          STATUS="${{ job.status }}"
+          ART="$(mktemp -d)"
+          if git clone --depth 1 --branch apk-artifacts \
+               "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" "$ART/repo" 2>/dev/null; then
+            cd "$ART/repo"
+            git config user.email "actions@github.com"
+            git config user.name "github-actions"
+            rm -rf apk logs
+          else
+            mkdir -p "$ART/repo"
+            cd "$ART/repo"
+            git init -b apk-artifacts
+            git config user.email "actions@github.com"
+            git config user.name "github-actions"
+            git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git"
+          fi
+          mkdir -p apk logs
+          cp "$GITHUB_WORKSPACE/build.log" "logs/build-${GITHUB_RUN_NUMBER}.log" || true
+          # keep last few logs only
+          ls -1t logs/*.log 2>/dev/null | tail -n +6 | xargs -r rm -f
+          if [ "$STATUS" = "success" ]; then
+            find "$GITHUB_WORKSPACE/catroid/build/outputs/apk/danvex/debug" -name '*.apk' -print0 | \
+              while IFS= read -r -d '' apk; do
+                base="$(basename "$apk")"
+                if [ "$(stat -c%s "$apk")" -gt 90000000 ]; then
+                  split -b 90m -d "$apk" "apk/${base}.part"
+                else
+                  cp "$apk" "apk/$base"
+                fi
+              done
+            (cd apk && sha256sum * > sha256sums.txt)
+            echo "status=success" > info.txt
+          else
+            echo "status=failure" > info.txt
+            tail -c 200000 "$GITHUB_WORKSPACE/build.log" > "logs/failure-tail-${GITHUB_RUN_NUMBER}.log" || true
+          fi
+          {
+            echo "run=$GITHUB_RUN_ID"
+            echo "run_number=$GITHUB_RUN_NUMBER"
+            echo "sha=$GITHUB_SHA"
+            echo "ref=$GITHUB_REF"
+            echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> info.txt
+          git add -A
+          git commit -m "APK build $STATUS (run $GITHUB_RUN_NUMBER)" || true
+          git push --force origin apk-artifacts
